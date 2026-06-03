@@ -6,6 +6,8 @@ let currentRadius = 2; // Default to size 3
 
 // --- Camera & View State ---
 let scale = 1;
+let minScale = 0.5;
+let maxScale = 2.5; // Prevent zooming in to a single pixel
 let offsetX = 0;
 let offsetY = 0;
 let isPanning = false;
@@ -37,13 +39,36 @@ let allTriEdges = [];
 function getKey(x, y) { return Math.round(x * 100) + ',' + Math.round(y * 100); }
 function getEdgeKey(p1, p2) { return [getKey(p1.x, p1.y), getKey(p2.x, p2.y)].sort().join('|'); }
 
-// Resize canvas to fill the screen
+function calculateScaleBounds() {
+    // Determine the absolute width of the puzzle in pixels
+    const puzzlePixelWidth = (currentRadius * 3 + 2) * HEX_SIZE;
+    const puzzlePixelHeight = (currentRadius * 2 + 1) * Math.sqrt(3) * HEX_SIZE;
+    
+    // Set the minimum scale so the puzzle exactly fills the shortest side of the screen 
+    // minus a tiny bit of padding (20px).
+    const scaleX = canvas.width / (puzzlePixelWidth + 20);
+    const scaleY = canvas.height / (puzzlePixelHeight + 20);
+    
+    minScale = Math.min(scaleX, scaleY);
+
+    // If resizing the screen pushed our current scale below the new minimum, snap back
+    if (scale < minScale) {
+        scale = minScale;
+        offsetX = canvas.width / 2;
+        offsetY = canvas.height / 2;
+    }
+}
+
 function resizeCanvas() {
     canvas.width = canvas.parentElement.clientWidth;
     canvas.height = canvas.parentElement.clientHeight;
-    // Keep the puzzle centered if the screen turns
-    offsetX = canvas.width / 2;
-    offsetY = canvas.height / 2;
+    calculateScaleBounds();
+    
+    // Only auto-center if the puzzle is smaller than the screen
+    if(scale <= minScale) {
+        offsetX = canvas.width / 2;
+        offsetY = canvas.height / 2;
+    }
 }
 window.addEventListener('resize', resizeCanvas);
 
@@ -71,7 +96,6 @@ function generateAttempt(radius) {
     const uniqueCornersMap = new Map();
     const localHexEdgeMap = new Map();
 
-    // Center is explicitly 0,0 - Camera handles screen placement
     hexes.forEach((hex, i) => {
         const cx = HEX_SIZE * 1.5 * hex.q;
         const cy = HEX_SIZE * Math.sqrt(3) * (hex.r + hex.q / 2);
@@ -136,7 +160,6 @@ function generateAttempt(radius) {
         return midYb - midYa; 
     });
 
-    // The number of bottom flat edges scales with the radius
     perimeterHexEdges.splice(0, radius + 1);
     const canopyEdges = perimeterHexEdges; 
 
@@ -194,10 +217,14 @@ function generateAttempt(radius) {
 
 function initPuzzle(radius = 2) {
     currentRadius = radius;
-    resizeCanvas(); 
+    // Force a resize to properly set canvas dimensions before math
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
     
-    // Auto-scale depending on radius so it fits the screen
-    scale = radius === 3 ? 0.75 : 1.0; 
+    calculateScaleBounds();
+    scale = minScale; // Start fully zoomed out
+    offsetX = canvas.width / 2;
+    offsetY = canvas.height / 2;
 
     generateAttempt(radius);
 
@@ -320,7 +347,6 @@ function getPointerEdge(e) {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     const pt = getTransformedPoint(clientX, clientY);
     
-    // Scale the hit radius so it stays a consistent finger-size regardless of zoom
     let closestDist = 20 / scale; 
     let foundEdge = null;
     let targetEdges = currentMode === 'green' ? allHexEdges : allTriEdges;
@@ -375,7 +401,6 @@ canvas.addEventListener('touchstart', (e) => {
 
     const targetEdge = getPointerEdge(e);
     if (!targetEdge) {
-        // Drag on empty space to pan
         isPanning = true;
         lastPanX = e.touches[0].clientX;
         lastPanY = e.touches[0].clientY;
@@ -394,7 +419,13 @@ canvas.addEventListener('touchmove', (e) => {
             e.touches[0].clientY - e.touches[1].clientY
         );
         if (lastPinchDist) {
-            const zoom = dist / lastPinchDist;
+            let zoom = dist / lastPinchDist;
+            let newScale = scale * zoom;
+            
+            // Constrain Zoom
+            if (newScale < minScale) { zoom = minScale / scale; newScale = minScale; }
+            if (newScale > maxScale) { zoom = maxScale / scale; newScale = maxScale; }
+
             const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
             const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
             const rect = canvas.getBoundingClientRect();
@@ -403,7 +434,7 @@ canvas.addEventListener('touchmove', (e) => {
 
             offsetX = canvasX - (canvasX - offsetX) * zoom;
             offsetY = canvasY - (canvasY - offsetY) * zoom;
-            scale *= zoom;
+            scale = newScale;
         }
         lastPinchDist = dist;
         return;
@@ -454,14 +485,20 @@ window.addEventListener('mouseup', () => { isPanning = false; });
 
 canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    const zoom = e.deltaY > 0 ? 0.9 : 1.1;
+    let zoom = e.deltaY > 0 ? 0.9 : 1.1;
+    let newScale = scale * zoom;
+    
+    // Constrain zoom
+    if (newScale < minScale) { zoom = minScale / scale; newScale = minScale; }
+    if (newScale > maxScale) { zoom = maxScale / scale; newScale = maxScale; }
+
     const rect = canvas.getBoundingClientRect();
     const canvasX = e.clientX - rect.left;
     const canvasY = e.clientY - rect.top;
     
     offsetX = canvasX - (canvasX - offsetX) * zoom;
     offsetY = canvasY - (canvasY - offsetY) * zoom;
-    scale *= zoom;
+    scale = newScale;
 }, { passive: false });
 
 
@@ -514,7 +551,7 @@ function draw() {
 
     // Draw hover state
     if (hoveredEdge) {
-        drawLine(hoveredEdge.p1, hoveredEdge.p2, '#bdc3c7', 8);
+        drawLine(hoveredEdge.p1, hoveredEdge.p2, '#bdc3c7', 8 / scale);
     }
 
     // Draw player's networks
@@ -559,6 +596,6 @@ function draw() {
     requestAnimationFrame(draw);
 }
 
-// Initial boot
-setTimeout(() => initPuzzle(2), 100); 
+// Initial boot - slight delay so the DOM has time to render its proper sizes before calculations
+setTimeout(() => initPuzzle(2), 150); 
 draw();
