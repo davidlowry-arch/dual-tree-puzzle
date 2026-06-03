@@ -42,7 +42,8 @@ function getEdgeKey(p1, p2) { return [getKey(p1.x, p1.y), getKey(p2.x, p2.y)].so
 function calculateScaleBounds() {
     // Determine the absolute width of the puzzle in pixels
     const puzzlePixelWidth = (currentRadius * 3 + 2) * HEX_SIZE;
-    const puzzlePixelHeight = (currentRadius * 2 + 1) * Math.sqrt(3) * HEX_SIZE;
+    // Increased to 2.5 to account for the new 1.5x height trunk at the bottom
+    const puzzlePixelHeight = (currentRadius * 2 + 2.5) * Math.sqrt(3) * HEX_SIZE;
     
     // Set the minimum scale so the puzzle exactly fills the shortest side of the screen 
     // minus a tiny bit of padding (20px).
@@ -55,7 +56,8 @@ function calculateScaleBounds() {
     if (scale < minScale) {
         scale = minScale;
         offsetX = canvas.width / 2;
-        offsetY = canvas.height / 2;
+        // Shift visual center slightly down to account for the trunk
+        offsetY = canvas.height / 2 - (0.75 * Math.sqrt(3) * HEX_SIZE * scale);
     }
 }
 
@@ -67,7 +69,7 @@ function resizeCanvas() {
     // Only auto-center if the puzzle is smaller than the screen
     if(scale <= minScale) {
         offsetX = canvas.width / 2;
-        offsetY = canvas.height / 2;
+        offsetY = canvas.height / 2 - (0.75 * Math.sqrt(3) * HEX_SIZE * scale);
     }
 }
 window.addEventListener('resize', resizeCanvas);
@@ -160,7 +162,8 @@ function generateAttempt(radius) {
         return midYb - midYa; 
     });
 
-    perimeterHexEdges.splice(0, radius + 1);
+    // Always remove exactly 3 edges for the bottom hex trunk opening
+    perimeterHexEdges.splice(0, 3);
     const canopyEdges = perimeterHexEdges; 
 
     allHexEdges = [...interiorHexEdges, ...canopyEdges];
@@ -213,6 +216,12 @@ function generateAttempt(radius) {
         e.solutionValue = Math.random() < doubleProbability ? 2 : 1;
         e.value = 0; 
     });
+
+    // Auto-fill the outer green perimeter with a single connection
+    canopyEdges.forEach(e => {
+        e.value = 1;
+        greenTreeEdges.push(e);
+    });
 }
 
 function initPuzzle(radius = 2) {
@@ -224,7 +233,7 @@ function initPuzzle(radius = 2) {
     calculateScaleBounds();
     scale = minScale; // Start fully zoomed out
     offsetX = canvas.width / 2;
-    offsetY = canvas.height / 2;
+    offsetY = canvas.height / 2 - (0.75 * Math.sqrt(3) * HEX_SIZE * scale);
 
     generateAttempt(radius);
 
@@ -556,6 +565,41 @@ function draw() {
 
     // Draw player's networks
     greenTreeEdges.forEach(e => drawEdge(e, '#27ae60', 6));
+
+    // Draw the slender brown trunk
+    if (centers.length > 0) {
+        // Find the lowest point on the brown grid
+        let bottomCenter = centers.reduce((max, c) => c.y > max.y ? c : max, centers[0]);
+        let hexHeight = Math.sqrt(3) * HEX_SIZE;
+        let startX = bottomCenter.x;
+        let startY = bottomCenter.y;
+        let endY = startY + 1.5 * hexHeight; // 1.5x the height of a hex
+        
+        let wTop = 10; // Slightly wider than a 6px line
+        let wMid = 5;  // Thins out in the middle
+        let wBot = 14; // Gently flares at the base
+
+        ctx.beginPath();
+        ctx.moveTo(startX - wTop/2, startY);
+        // Curve down left
+        ctx.bezierCurveTo(
+            startX - wMid/2, startY + (endY - startY) * 0.4,
+            startX - wMid/2, startY + (endY - startY) * 0.6,
+            startX - wBot/2, endY
+        );
+        // Bottom flat edge
+        ctx.lineTo(startX + wBot/2, endY);
+        // Curve up right
+        ctx.bezierCurveTo(
+            startX + wMid/2, startY + (endY - startY) * 0.6,
+            startX + wMid/2, startY + (endY - startY) * 0.4,
+            startX + wTop/2, startY
+        );
+        ctx.closePath();
+        ctx.fillStyle = '#8B4513';
+        ctx.fill();
+    }
+
     brownTreeEdges.forEach(e => drawEdge(e, '#8B4513', 6)); 
 
     if (hintFlashEdge && Date.now() - hintFlashTime < 600) {
