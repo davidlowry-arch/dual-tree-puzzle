@@ -3,19 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Dual-Tree Hashi Puzzle Prototype</title>
+    <title>Dual-Tree Hashi Puzzle</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="game-container">
-        <canvas id="puzzleCanvas" width="380" height="440"></canvas>
+        <canvas id="puzzleCanvas"></canvas>
     </div>
     
 <div id="controls">
-    <button id="btn-green" class="active">Green Tree</button>
-    <button id="btn-brown">Brown Tree</button>
-    <button id="btn-hint" style="background-color: #f1c40f; color: #2c3e50; font-weight: bold;">Hint</button>
-    <button id="btn-new" style="background-color: #34495e; color: white;">New</button>
+    <div class="control-row">
+        <button id="btn-green" class="active">Green Tree</button>
+        <button id="btn-brown">Brown Tree</button>
+        <button id="btn-hint" style="background-color: #f1c40f; color: #2c3e50;">Hint</button>
+    </div>
+    <div class="control-row">
+        <button id="btn-new-3" class="action-btn">New Size 3</button>
+        <button id="btn-new-4" class="action-btn">New Size 4</button>
+    </div>
 </div>
 
     <script src="script.js"></script>

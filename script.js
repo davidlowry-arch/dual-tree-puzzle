@@ -2,6 +2,16 @@ const canvas = document.getElementById('puzzleCanvas');
 const ctx = canvas.getContext('2d');
 
 let currentMode = 'green'; 
+let currentRadius = 2; // Default to size 3
+
+// --- Camera & View State ---
+let scale = 1;
+let offsetX = 0;
+let offsetY = 0;
+let isPanning = false;
+let lastPanX = 0;
+let lastPanY = 0;
+let lastPinchDist = null;
 
 // --- Interaction State ---
 let greenTreeEdges = []; 
@@ -17,9 +27,7 @@ let solutionGreenEdges = [];
 let solutionBrownEdges = [];
 
 // --- Geometry Setup ---
-// Scaled down from 55 to fit the 380px canvas width
 const HEX_SIZE = 42; 
-const CENTER = { x: canvas.width / 2, y: canvas.height / 2 - 20 };
 
 let centers = [];
 let corners = [];
@@ -29,8 +37,18 @@ let allTriEdges = [];
 function getKey(x, y) { return Math.round(x * 100) + ',' + Math.round(y * 100); }
 function getEdgeKey(p1, p2) { return [getKey(p1.x, p1.y), getKey(p2.x, p2.y)].sort().join('|'); }
 
+// Resize canvas to fill the screen
+function resizeCanvas() {
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
+    // Keep the puzzle centered if the screen turns
+    offsetX = canvas.width / 2;
+    offsetY = canvas.height / 2;
+}
+window.addEventListener('resize', resizeCanvas);
+
 // --- Initialization & Generation ---
-function generateAttempt() {
+function generateAttempt(radius) {
     centers = [];
     corners = [];
     allHexEdges = [];
@@ -42,9 +60,9 @@ function generateAttempt() {
     hoveredEdge = null;
 
     const hexes = [];
-    for (let q = -2; q <= 2; q++) {
-        for (let r = -2; r <= 2; r++) {
-            if (Math.abs(q + r) <= 2) {
+    for (let q = -radius; q <= radius; q++) {
+        for (let r = -radius; r <= radius; r++) {
+            if (Math.abs(q + r) <= radius) {
                 hexes.push({ q, r });
             }
         }
@@ -53,9 +71,10 @@ function generateAttempt() {
     const uniqueCornersMap = new Map();
     const localHexEdgeMap = new Map();
 
+    // Center is explicitly 0,0 - Camera handles screen placement
     hexes.forEach((hex, i) => {
-        const cx = CENTER.x + HEX_SIZE * 1.5 * hex.q;
-        const cy = CENTER.y + HEX_SIZE * Math.sqrt(3) * (hex.r + hex.q / 2);
+        const cx = HEX_SIZE * 1.5 * hex.q;
+        const cy = HEX_SIZE * Math.sqrt(3) * (hex.r + hex.q / 2);
         centers.push({ x: cx, y: cy, clue: 0, index: i });
 
         const hexCorners = [];
@@ -77,7 +96,6 @@ function generateAttempt() {
             const edgeKey = getEdgeKey(p1, p2);
             
             if (!localHexEdgeMap.has(edgeKey)) {
-                // solutionValue separates player drawing from the solution
                 localHexEdgeMap.set(edgeKey, { id: edgeKey, p1, p2, hexIndices: [i], value: 0, solutionValue: 0 });
             } else {
                 localHexEdgeMap.get(edgeKey).hexIndices.push(i);
@@ -118,7 +136,8 @@ function generateAttempt() {
         return midYb - midYa; 
     });
 
-    perimeterHexEdges.splice(0, 3);
+    // The number of bottom flat edges scales with the radius
+    perimeterHexEdges.splice(0, radius + 1);
     const canopyEdges = perimeterHexEdges; 
 
     allHexEdges = [...interiorHexEdges, ...canopyEdges];
@@ -147,7 +166,7 @@ function generateAttempt() {
     interiorHexEdges.forEach(edge => {
         const midX = (edge.p1.x + edge.p2.x) / 2;
         const midY = (edge.p1.y + edge.p2.y) / 2;
-        const dist = Math.hypot(midX - CENTER.x, midY - CENTER.y);
+        const dist = Math.hypot(midX, midY);
         edge.weight = dist + Math.random() * HEX_SIZE * 2;
     });
     interiorHexEdges.sort((a, b) => a.weight - b.weight);
@@ -160,24 +179,28 @@ function generateAttempt() {
         }
     });
 
-    // Assign Hashi Double Lines (40% to 60% dynamically per puzzle)
     const doubleProbability = 0.4 + Math.random() * 0.2; 
     
     solutionGreenEdges.forEach(e => {
         e.solutionValue = Math.random() < doubleProbability ? 2 : 1;
-        e.value = 0; // Reset player state
+        e.value = 0; 
     });
     
     solutionBrownEdges.forEach(e => {
         e.solutionValue = Math.random() < doubleProbability ? 2 : 1;
-        e.value = 0; // Reset player state
+        e.value = 0; 
     });
 }
 
-function initPuzzle() {
-    generateAttempt();
+function initPuzzle(radius = 2) {
+    currentRadius = radius;
+    resizeCanvas(); 
+    
+    // Auto-scale depending on radius so it fits the screen
+    scale = radius === 3 ? 0.75 : 1.0; 
 
-    // Tally up the solutionValues of the connected edges for the clues
+    generateAttempt(radius);
+
     solutionBrownEdges.forEach(e => {
         centers[e.u].clue += e.solutionValue;
         centers[e.v].clue += e.solutionValue;
@@ -225,7 +248,6 @@ function checkWinCondition() {
     if (greenTreeEdges.length !== solutionGreenEdges.length) return false;
     if (brownTreeEdges.length !== solutionBrownEdges.length) return false;
 
-    // Check if every edge the player drew perfectly matches its required solution weight
     const arraysMatch = (drawnTree) => {
         return drawnTree.every(edge => edge.value === edge.solutionValue);
     };
@@ -244,13 +266,12 @@ function updateModeUI() {
 
 document.getElementById('btn-green').addEventListener('click', () => { currentMode = 'green'; updateModeUI(); });
 document.getElementById('btn-brown').addEventListener('click', () => { currentMode = 'brown'; updateModeUI(); });
-
 updateModeUI();
 
-document.getElementById('btn-new').addEventListener('click', initPuzzle);
+document.getElementById('btn-new-3').addEventListener('click', () => initPuzzle(2));
+document.getElementById('btn-new-4').addEventListener('click', () => initPuzzle(3));
 
 document.getElementById('btn-hint').addEventListener('click', () => {
-    // Find lines where the player's value is lower than the required solutionValue
     const missingGreen = solutionGreenEdges.filter(sol => sol.value < sol.solutionValue);
     const missingBrown = solutionBrownEdges.filter(sol => sol.value < sol.solutionValue);
 
@@ -260,7 +281,7 @@ document.getElementById('btn-hint').addEventListener('click', () => {
     ];
 
     if (allMissing.length === 0) {
-        alert("No more hints available! If the puzzle isn't solved, you may need to erase some incorrect lines.");
+        alert("No more hints available! You may need to erase some incorrect lines.");
         return;
     }
 
@@ -269,33 +290,43 @@ document.getElementById('btn-hint').addEventListener('click', () => {
     const drawnEdge = targetTree.find(d => d.id === hint.edge.id);
 
     if (drawnEdge) {
-        drawnEdge.value = 2; // Upgrade to double
+        drawnEdge.value = 2; 
     } else {
-        hint.edge.value = 1; // Draw single
+        hint.edge.value = 1; 
         targetTree.push(hint.edge);
     }
 
     hintFlashEdge = hint.edge;
     hintFlashTime = Date.now();
 
+    // Auto-pan camera to the hint location
+    offsetX = canvas.width / 2 - ((hint.edge.p1.x + hint.edge.p2.x) / 2) * scale;
+    offsetY = canvas.height / 2 - ((hint.edge.p1.y + hint.edge.p2.y) / 2) * scale;
+
     if (checkWinCondition()) triggerWin();
 });
 
 
-// --- Touch & Mouse Logic (Mobile Friendly) ---
-function getPointerEdge(e) {
+// --- Camera & Interaction Logic ---
+function getTransformedPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
+    const x = (clientX - rect.left - offsetX) / scale;
+    const y = (clientY - rect.top - offsetY) / scale;
+    return { x, y };
+}
+
+function getPointerEdge(e) {
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const mx = clientX - rect.left;
-    const my = clientY - rect.top;
+    const pt = getTransformedPoint(clientX, clientY);
     
-    let closestDist = 20; // Increased radius to make finger-tapping easier
+    // Scale the hit radius so it stays a consistent finger-size regardless of zoom
+    let closestDist = 20 / scale; 
     let foundEdge = null;
     let targetEdges = currentMode === 'green' ? allHexEdges : allTriEdges;
 
     for (let edge of targetEdges) {
-        const d = pointToSegmentDist(mx, my, edge.p1.x, edge.p1.y, edge.p2.x, edge.p2.y);
+        const d = pointToSegmentDist(pt.x, pt.y, edge.p1.x, edge.p1.y, edge.p2.x, edge.p2.y);
         if (d < closestDist) {
             closestDist = d;
             foundEdge = edge;
@@ -304,43 +335,19 @@ function getPointerEdge(e) {
     return foundEdge;
 }
 
-function handleMove(e) {
-    if (e.touches) e.preventDefault(); 
-    hoveredEdge = getPointerEdge(e);
-}
-
-canvas.addEventListener('mousemove', handleMove);
-canvas.addEventListener('touchmove', handleMove, { passive: false });
-
-function triggerWin() {
-    setTimeout(() => { 
-        if (window.confirm("Congratulations! You've solved the puzzle! Play again?")) {
-            initPuzzle();
-        }
-    }, 50);
-}
-
-function handleInteract(e) {
-    if (e.touches) e.preventDefault(); // Stop mobile double-tap zoom
-    
-    const targetEdge = getPointerEdge(e);
-    if (!targetEdge) return;
-
+function handleInteract(targetEdge) {
     const targetTree = currentMode === 'green' ? greenTreeEdges : brownTreeEdges;
     const existingEdge = targetTree.find(ed => ed.id === targetEdge.id);
 
     if (existingEdge) {
         if (existingEdge.value === 1) {
-            // Upgrade to double line
             existingEdge.value = 2;
         } else {
-            // Remove completely
             const index = targetTree.indexOf(existingEdge);
             targetTree.splice(index, 1);
             existingEdge.value = 0;
         }
     } else {
-        // Draw new single line
         if (createsLoop(targetTree, targetEdge)) {
             errorFlashEdge = targetEdge;
             errorFlashTime = Date.now();
@@ -353,8 +360,118 @@ function handleInteract(e) {
     if (checkWinCondition()) triggerWin();
 }
 
-canvas.addEventListener('mousedown', handleInteract);
-canvas.addEventListener('touchstart', handleInteract, { passive: false });
+// Touch controls (Mobile)
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault(); 
+    
+    if (e.touches.length === 2) {
+        isPanning = false;
+        lastPinchDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+        );
+        return;
+    }
+
+    const targetEdge = getPointerEdge(e);
+    if (!targetEdge) {
+        // Drag on empty space to pan
+        isPanning = true;
+        lastPanX = e.touches[0].clientX;
+        lastPanY = e.touches[0].clientY;
+    } else {
+        handleInteract(targetEdge);
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    
+    // Pinch to zoom
+    if (e.touches.length === 2) {
+        const dist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+        );
+        if (lastPinchDist) {
+            const zoom = dist / lastPinchDist;
+            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+            const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = midX - rect.left;
+            const canvasY = midY - rect.top;
+
+            offsetX = canvasX - (canvasX - offsetX) * zoom;
+            offsetY = canvasY - (canvasY - offsetY) * zoom;
+            scale *= zoom;
+        }
+        lastPinchDist = dist;
+        return;
+    }
+
+    // 1-finger panning
+    if (isPanning) {
+        const dx = e.touches[0].clientX - lastPanX;
+        const dy = e.touches[0].clientY - lastPanY;
+        offsetX += dx;
+        offsetY += dy;
+        lastPanX = e.touches[0].clientX;
+        lastPanY = e.touches[0].clientY;
+    } else {
+        hoveredEdge = getPointerEdge(e);
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => {
+    isPanning = false;
+    lastPinchDist = null;
+});
+
+// Mouse Controls (Desktop fallback)
+canvas.addEventListener('mousedown', (e) => {
+    const targetEdge = getPointerEdge(e);
+    if (!targetEdge) {
+        isPanning = true;
+        lastPanX = e.clientX;
+        lastPanY = e.clientY;
+    } else {
+        handleInteract(targetEdge);
+    }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    if (isPanning) {
+        offsetX += e.clientX - lastPanX;
+        offsetY += e.clientY - lastPanY;
+        lastPanX = e.clientX;
+        lastPanY = e.clientY;
+    } else {
+        hoveredEdge = getPointerEdge(e);
+    }
+});
+
+window.addEventListener('mouseup', () => { isPanning = false; });
+
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const zoom = e.deltaY > 0 ? 0.9 : 1.1;
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    offsetX = canvasX - (canvasX - offsetX) * zoom;
+    offsetY = canvasY - (canvasY - offsetY) * zoom;
+    scale *= zoom;
+}, { passive: false });
+
+
+function triggerWin() {
+    setTimeout(() => { 
+        if (window.confirm("Congratulations! You've solved the puzzle! Play again?")) {
+            initPuzzle(currentRadius);
+        }
+    }, 50);
+}
 
 
 // --- Render Loop ---
@@ -369,10 +486,8 @@ function drawLine(p1, p2, color, width, isDashed = false) {
     ctx.setLineDash([]);
 }
 
-// Advanced renderer for Hashi lines
 function drawEdge(e, color, width, isDashed = false) {
     if (e.value === 2) {
-        // Calculate normals to draw parallel offset lines
         const dx = e.p2.x - e.p1.x;
         const dy = e.p2.y - e.p1.y;
         const len = Math.hypot(dx, dy);
@@ -382,13 +497,16 @@ function drawEdge(e, color, width, isDashed = false) {
         drawLine({x: e.p1.x + nx, y: e.p1.y + ny}, {x: e.p2.x + nx, y: e.p2.y + ny}, color, width * 0.6, isDashed);
         drawLine({x: e.p1.x - nx, y: e.p1.y - ny}, {x: e.p2.x - nx, y: e.p2.y - ny}, color, width * 0.6, isDashed);
     } else {
-        // Standard single line
         drawLine(e.p1, e.p2, color, width, isDashed);
     }
 }
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
 
     // Draw background grids
     allHexEdges.forEach(e => drawLine(e.p1, e.p2, '#dcdde1', 2));
@@ -399,7 +517,7 @@ function draw() {
         drawLine(hoveredEdge.p1, hoveredEdge.p2, '#bdc3c7', 8);
     }
 
-    // Draw player's hashi networks
+    // Draw player's networks
     greenTreeEdges.forEach(e => drawEdge(e, '#27ae60', 6));
     brownTreeEdges.forEach(e => drawEdge(e, '#8B4513', 6)); 
 
@@ -415,7 +533,7 @@ function draw() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // Draw Brown Clues (Triangle centers)
+    // Draw Brown Clues 
     centers.forEach(c => {
         ctx.beginPath();
         ctx.arc(c.x, c.y, 11, 0, Math.PI * 2);
@@ -425,7 +543,7 @@ function draw() {
         if(c.clue > 0) ctx.fillText(c.clue, c.x, c.y); 
     });
 
-    // Draw Green Clues (Hexagon corners)
+    // Draw Green Clues
     corners.forEach(c => {
         if (c.clue > 0) { 
             ctx.beginPath();
@@ -437,8 +555,10 @@ function draw() {
         }
     });
 
+    ctx.restore();
     requestAnimationFrame(draw);
 }
 
-initPuzzle();
+// Initial boot
+setTimeout(() => initPuzzle(2), 100); 
 draw();
