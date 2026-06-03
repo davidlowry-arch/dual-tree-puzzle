@@ -17,8 +17,9 @@ let solutionGreenEdges = [];
 let solutionBrownEdges = [];
 
 // --- Geometry Setup ---
-const HEX_SIZE = 55; 
-const CENTER = { x: canvas.width / 2, y: canvas.height / 2 - 40 };
+// Scaled down from 55 to fit the 380px canvas width
+const HEX_SIZE = 42; 
+const CENTER = { x: canvas.width / 2, y: canvas.height / 2 - 20 };
 
 let centers = [];
 let corners = [];
@@ -76,7 +77,7 @@ function generateAttempt() {
             const edgeKey = getEdgeKey(p1, p2);
             
             if (!localHexEdgeMap.has(edgeKey)) {
-                // ADDED solutionValue: 0
+                // solutionValue separates player drawing from the solution
                 localHexEdgeMap.set(edgeKey, { id: edgeKey, p1, p2, hexIndices: [i], value: 0, solutionValue: 0 });
             } else {
                 localHexEdgeMap.get(edgeKey).hexIndices.push(i);
@@ -102,7 +103,7 @@ function generateAttempt() {
                 u: u,
                 v: v,
                 value: 0,
-                solutionValue: 0 // ADDED solutionValue: 0
+                solutionValue: 0
             };
             allTriEdges.push(triEdge);
             hexEdge.correspondingTriEdge = triEdge; 
@@ -226,7 +227,6 @@ function checkWinCondition() {
 
     // Check if every edge the player drew perfectly matches its required solution weight
     const arraysMatch = (drawnTree) => {
-        // If a player drew an incorrect line, its solutionValue is 0, so this returns false.
         return drawnTree.every(edge => edge.value === edge.solutionValue);
     };
 
@@ -236,7 +236,7 @@ function checkWinCondition() {
     return true;
 }
 
-// --- Event Listeners ---
+// --- UI Updates & Buttons ---
 function updateModeUI() {
     document.getElementById('btn-green').style.opacity = currentMode === 'green' ? '1' : '0.5';
     document.getElementById('btn-brown').style.opacity = currentMode === 'brown' ? '1' : '0.5';
@@ -281,24 +281,36 @@ document.getElementById('btn-hint').addEventListener('click', () => {
     if (checkWinCondition()) triggerWin();
 });
 
-canvas.addEventListener('mousemove', (e) => {
+
+// --- Touch & Mouse Logic (Mobile Friendly) ---
+function getPointerEdge(e) {
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
     
-    hoveredEdge = null;
-    let closestDist = 15; 
-    
+    let closestDist = 20; // Increased radius to make finger-tapping easier
+    let foundEdge = null;
     let targetEdges = currentMode === 'green' ? allHexEdges : allTriEdges;
 
     for (let edge of targetEdges) {
         const d = pointToSegmentDist(mx, my, edge.p1.x, edge.p1.y, edge.p2.x, edge.p2.y);
         if (d < closestDist) {
             closestDist = d;
-            hoveredEdge = edge;
+            foundEdge = edge;
         }
     }
-});
+    return foundEdge;
+}
+
+function handleMove(e) {
+    if (e.touches) e.preventDefault(); 
+    hoveredEdge = getPointerEdge(e);
+}
+
+canvas.addEventListener('mousemove', handleMove);
+canvas.addEventListener('touchmove', handleMove, { passive: false });
 
 function triggerWin() {
     setTimeout(() => { 
@@ -308,11 +320,14 @@ function triggerWin() {
     }, 50);
 }
 
-canvas.addEventListener('mousedown', () => {
-    if (!hoveredEdge) return;
+function handleInteract(e) {
+    if (e.touches) e.preventDefault(); // Stop mobile double-tap zoom
+    
+    const targetEdge = getPointerEdge(e);
+    if (!targetEdge) return;
 
     const targetTree = currentMode === 'green' ? greenTreeEdges : brownTreeEdges;
-    const existingEdge = targetTree.find(e => e.id === hoveredEdge.id);
+    const existingEdge = targetTree.find(ed => ed.id === targetEdge.id);
 
     if (existingEdge) {
         if (existingEdge.value === 1) {
@@ -326,17 +341,20 @@ canvas.addEventListener('mousedown', () => {
         }
     } else {
         // Draw new single line
-        if (createsLoop(targetTree, hoveredEdge)) {
-            errorFlashEdge = hoveredEdge;
+        if (createsLoop(targetTree, targetEdge)) {
+            errorFlashEdge = targetEdge;
             errorFlashTime = Date.now();
         } else {
-            hoveredEdge.value = 1;
-            targetTree.push(hoveredEdge);
+            targetEdge.value = 1;
+            targetTree.push(targetEdge);
         }
     }
 
     if (checkWinCondition()) triggerWin();
-});
+}
+
+canvas.addEventListener('mousedown', handleInteract);
+canvas.addEventListener('touchstart', handleInteract, { passive: false });
 
 
 // --- Render Loop ---
