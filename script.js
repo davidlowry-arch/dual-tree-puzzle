@@ -189,11 +189,24 @@ function generateAttempt(radius) {
         union(edge.p1.id, edge.p2.id);
     });
 
+    // Randomly select a generation style for this puzzle (0, 1, or 2)
+    const styleMode = Math.floor(Math.random() * 3);
+
     interiorHexEdges.forEach(edge => {
         const midX = (edge.p1.x + edge.p2.x) / 2;
         const midY = (edge.p1.y + edge.p2.y) / 2;
         const dist = Math.hypot(midX, midY);
-        edge.weight = dist + Math.random() * HEX_SIZE * 2;
+        
+        if (styleMode === 0) {
+            // Mode 0: Green claims the center, pushing Brown to form a ring
+            edge.weight = dist + Math.random() * HEX_SIZE * 2;
+        } else if (styleMode === 1) {
+            // Mode 1: Brown claims the center, acting as a dense, branching trunk
+            edge.weight = -dist + Math.random() * HEX_SIZE * 2;
+        } else {
+            // Mode 2: Completely unbiased, natural winding paths
+            edge.weight = Math.random();
+        }
     });
     interiorHexEdges.sort((a, b) => a.weight - b.weight);
 
