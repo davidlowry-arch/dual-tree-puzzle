@@ -189,25 +189,41 @@ function generateAttempt(radius) {
         union(edge.p1.id, edge.p2.id);
     });
 
-    // Randomly select a generation style for this puzzle (0, 1, or 2)
-    const styleMode = Math.floor(Math.random() * 3);
+    // Randomly select a generation style for this puzzle (0 through 6)
+    const styleMode = Math.floor(Math.random() * 7);
 
     interiorHexEdges.forEach(edge => {
         const midX = (edge.p1.x + edge.p2.x) / 2;
         const midY = (edge.p1.y + edge.p2.y) / 2;
         const dist = Math.hypot(midX, midY);
         
-        if (styleMode === 0) {
-            // Mode 0: Green claims the center, pushing Brown to form a ring
-            edge.weight = dist + Math.random() * HEX_SIZE * 2;
-        } else if (styleMode === 1) {
-            // Mode 1: Brown claims the center, acting as a dense, branching trunk
-            edge.weight = -dist + Math.random() * HEX_SIZE * 2;
-        } else {
-            // Mode 2: Completely unbiased, natural winding paths
-            edge.weight = Math.random();
+        const noise = Math.random() * HEX_SIZE * 2; // Adds an organic, winding feel
+
+        switch(styleMode) {
+            case 0: // Green claims center, pushing Brown to form a ring
+                edge.weight = dist + noise;
+                break;
+            case 1: // Brown claims center, acting as a dense, branching trunk
+                edge.weight = -dist + noise;
+                break;
+            case 2: // Completely unbiased, natural winding paths
+                edge.weight = Math.random();
+                break;
+            case 3: // Top Bias
+                edge.weight = midY + noise; 
+                break;
+            case 4: // Bottom Bias
+                edge.weight = -midY + noise;
+                break;
+            case 5: // Left Bias
+                edge.weight = midX + noise;
+                break;
+            case 6: // Right Bias
+                edge.weight = -midX + noise;
+                break;
         }
     });
+    
     interiorHexEdges.sort((a, b) => a.weight - b.weight);
 
     interiorHexEdges.forEach(edge => {
