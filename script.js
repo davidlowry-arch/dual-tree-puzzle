@@ -23,6 +23,7 @@ let errorFlashEdge = null;
 let errorFlashTime = 0;
 let hintFlashEdge = null;
 let hintFlashTime = 0;
+let puzzleModified = false; // Tracks if the user has made any moves
 
 // --- Solution State ---
 let solutionGreenEdges = [];
@@ -275,6 +276,8 @@ function initPuzzle(radius = 2) {
         e.p1.clue += e.solutionValue;
         e.p2.clue += e.solutionValue;
     });
+
+    puzzleModified = false; // Reset progress tracker on new puzzle
 }
 
 // --- Player Logic & Win Condition ---
@@ -333,10 +336,22 @@ document.getElementById('btn-green').addEventListener('click', () => { currentMo
 document.getElementById('btn-brown').addEventListener('click', () => { currentMode = 'brown'; updateModeUI(); });
 updateModeUI();
 
-document.getElementById('btn-new-3').addEventListener('click', () => initPuzzle(2));
-document.getElementById('btn-new-4').addEventListener('click', () => initPuzzle(3));
+// Wrapper function to check for lost progress
+function requestNewPuzzle(radius) {
+    if (puzzleModified && !checkWinCondition()) {
+        if (!window.confirm("Create new puzzle? Your progress on this puzzle will be lost.")) {
+            return; // Exit if the user clicks Cancel
+        }
+    }
+    initPuzzle(radius);
+}
+
+document.getElementById('btn-new-3').addEventListener('click', () => requestNewPuzzle(2));
+document.getElementById('btn-new-4').addEventListener('click', () => requestNewPuzzle(3));
 
 document.getElementById('btn-hint').addEventListener('click', () => {
+    puzzleModified = true; // Count hint usage as making progress
+
     const missingGreen = solutionGreenEdges.filter(sol => sol.value < sol.solutionValue);
     const missingBrown = solutionBrownEdges.filter(sol => sol.value < sol.solutionValue);
 
@@ -400,6 +415,8 @@ function getPointerEdge(e) {
 }
 
 function handleInteract(targetEdge) {
+    puzzleModified = true; // Mark the puzzle as modified
+
     const targetTree = currentMode === 'green' ? greenTreeEdges : brownTreeEdges;
     const existingEdge = targetTree.find(ed => ed.id === targetEdge.id);
 
